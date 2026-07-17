@@ -19,6 +19,12 @@
 #
 set -euo pipefail
 
+# Tính toán số thực bằng awk (thay cho bc — bc không có trên Git Bash Windows).
+# LC_ALL=C để luôn dùng dấu chấm thập phân, hợp với ffmpeg.
+calc() { LC_ALL=C awk "BEGIN{printf \"%.6f\", $1}"; }
+# So sánh số thực: trả về true (exit 0) nếu biểu thức đúng.
+fcmp() { LC_ALL=C awk "BEGIN{exit !($1)}"; }
+
 DUR=1
 TRANS="fade"
 RES="1280x720"
@@ -63,7 +69,7 @@ for f in "${INPUTS[@]}"; do
     [[ -z "$d" || "$d" == "N/A" ]] && { echo "Lỗi: không đọc được độ dài '$f'." >&2; exit 1; }
     DURS+=("$d")
     # Mỗi clip phải dài hơn thời lượng chuyển cảnh.
-    if [[ "$(echo "$d <= $DUR" | bc -l)" == "1" ]]; then
+    if fcmp "$d <= $DUR"; then
         echo "Lỗi: clip '$f' (${d}s) ngắn hơn thời lượng chuyển cảnh ${DUR}s." >&2
         exit 1
     fi
@@ -101,11 +107,11 @@ done
 prev_v="v0"
 acc="${DURS[0]}"          # tổng độ dài tích luỹ (chưa trừ overlap)
 for ((i=1; i<n; i++)); do
-    offset="$(echo "$acc - $i * $DUR" | bc -l)"
+    offset="$(calc "$acc - $i * $DUR")"
     out_v="vx${i}"
     filter+="[${prev_v}][v${i}]xfade=transition=${TRANS}:duration=${DUR}:offset=${offset}[${out_v}];"
     prev_v="$out_v"
-    acc="$(echo "$acc + ${DURS[$i]}" | bc -l)"
+    acc="$(calc "$acc + ${DURS[$i]}")"
 done
 
 # Chuỗi acrossfade cho audio (tự căn theo điểm giao, không cần offset).

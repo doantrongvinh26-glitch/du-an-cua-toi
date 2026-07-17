@@ -17,6 +17,12 @@
 #
 set -euo pipefail
 
+# Tính toán số thực bằng awk (thay cho bc — bc không có trên Git Bash Windows).
+# LC_ALL=C để luôn dùng dấu chấm thập phân, hợp với ffmpeg.
+calc() { LC_ALL=C awk "BEGIN{printf \"%.6f\", $1}"; }
+# So sánh số thực: trả về true (exit 0) nếu biểu thức đúng.
+fcmp() { LC_ALL=C awk "BEGIN{exit !($1)}"; }
+
 MODE="mix"
 VOL=""
 LOOP=0
@@ -67,8 +73,8 @@ echo "    Chế độ: $MODE | Âm lượng nhạc: $VOL | Lặp: $([[ $LOOP -eq
 
 # Xử lý track nhạc: chỉnh âm lượng, fade vào/ra, cắt đúng độ dài video.
 MUSIC_FILTER="volume=${VOL}"
-if [[ "$(echo "$FADE > 0" | bc -l 2>/dev/null || echo 0)" == "1" ]]; then
-    FADE_OUT_ST="$(echo "$DUR - $FADE" | bc -l)"
+if fcmp "$FADE > 0"; then
+    FADE_OUT_ST="$(calc "$DUR - $FADE")"
     MUSIC_FILTER+=",afade=t=in:st=0:d=${FADE},afade=t=out:st=${FADE_OUT_ST}:d=${FADE}"
 fi
 MUSIC_FILTER+=",atrim=0:${DUR},asetpts=PTS-STARTPTS"
