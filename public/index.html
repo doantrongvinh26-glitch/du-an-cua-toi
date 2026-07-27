@@ -47,7 +47,17 @@
 
       <section id="tab-render" class="panel">
         <h1>Render Veo3</h1>
-        <p class="coming-soon">Sắp ra mắt: gửi prompt tới Veo3 và theo dõi tiến trình render từng cảnh.</p>
+        <p class="hint">
+          Gửi từng prompt (từ tab Prompt) tới Veo3 để render video thật. Mỗi lần render sẽ tính phí
+          theo Gemini API Key của bạn — kiểm tra hạn mức/billing trên Google AI Studio trước khi render nhiều cảnh.
+        </p>
+        <div class="field-actions">
+          <button class="btn-primary" id="renderAllBtn">Render tất cả (tuần tự)</button>
+        </div>
+        <div class="field-status" id="renderAllStatus"></div>
+        <div id="renderList" class="prompt-list">
+          <p class="coming-soon">Chưa có cảnh nào — sang tab "Kịch bản / Video mẫu" để sinh prompt trước.</p>
+        </div>
       </section>
 
       <section id="tab-stitch" class="panel">

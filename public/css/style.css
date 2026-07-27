@@ -218,6 +218,39 @@ textarea:focus {
   margin-top: 10px;
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.scene-card .scene-prompt-preview {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 0 10px;
+  max-height: 90px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.scene-card video {
+  width: 100%;
+  border-radius: 8px;
+  margin-top: 10px;
+  background: #000;
+}
+
+.scene-render-status {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.scene-render-status.ok { color: var(--teal); }
+.scene-render-status.err { color: var(--danger); }
+
+.download-link {
+  margin-top: 10px;
 }
 
 .btn-secondary,
