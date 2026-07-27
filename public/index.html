@@ -25,12 +25,24 @@
     <main class="content">
       <section id="tab-input" class="panel active">
         <h1>Kịch bản / Video mẫu</h1>
-        <p class="coming-soon">Sắp ra mắt: nhập kịch bản, tải video mẫu, hoặc dán link YouTube/TikTok/Facebook Reel để phân tích thành các cảnh.</p>
+        <p class="hint">
+          Dán kịch bản (tiếng Việt) vào ô bên dưới. App sẽ chia thành các cảnh và sinh prompt Veo3
+          chi tiết cho từng cảnh, giữ tính nhất quán để khi ghép lại các cảnh nối liền mượt mà.
+        </p>
+        <textarea id="scriptInput" rows="12" placeholder="Dán kịch bản của bạn vào đây..."></textarea>
+        <div class="field-actions">
+          <button class="btn-primary" id="generatePromptsBtn">Sinh Prompt cho từng cảnh</button>
+        </div>
+        <div class="field-status" id="generateStatus"></div>
+        <p class="coming-soon">Sắp ra mắt: tải video mẫu, hoặc dán link YouTube/TikTok/Facebook Reel để phân tích thành các cảnh.</p>
       </section>
 
       <section id="tab-prompt" class="panel">
         <h1>Prompt</h1>
-        <p class="coming-soon">Sắp ra mắt: sinh prompt Veo3 chi tiết cho từng cảnh từ kịch bản hoặc video mẫu.</p>
+        <p class="hint">Prompt Veo3 được sinh cho từng cảnh. Bạn có thể chỉnh sửa trực tiếp trước khi render.</p>
+        <div id="promptList" class="prompt-list">
+          <p class="coming-soon">Chưa có prompt nào — quay lại tab "Kịch bản / Video mẫu" để sinh prompt.</p>
+        </div>
       </section>
 
       <section id="tab-render" class="panel">

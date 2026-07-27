@@ -1,6 +1,7 @@
 const path = require('path');
 const express = require('express');
 const settingsStore = require('./lib/settings-store');
+const geminiClient = require('./lib/gemini-client');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,6 +25,23 @@ app.delete('/api/settings/:field', (req, res) => {
     res.json(updated);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/prompts/generate', async (req, res) => {
+  const { script } = req.body || {};
+  if (!script || !script.trim()) {
+    return res.status(400).json({ error: 'Thiếu kịch bản.' });
+  }
+  const apiKey = settingsStore.getSecret('geminiApiKey');
+  if (!apiKey) {
+    return res.status(400).json({ error: 'Chưa lưu Gemini API Key. Vào tab Cài đặt để thêm trước.' });
+  }
+  try {
+    const scenes = await geminiClient.generateScenePrompts(script.trim(), apiKey);
+    res.json({ scenes });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
 });
 

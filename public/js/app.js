@@ -2,13 +2,13 @@
   const tabButtons = document.querySelectorAll('.tab-btn');
   const panels = document.querySelectorAll('.panel');
 
+  function activateTab(name) {
+    tabButtons.forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+    panels.forEach((p) => p.classList.toggle('active', p.id === `tab-${name}`));
+  }
+
   tabButtons.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      tabButtons.forEach((b) => b.classList.remove('active'));
-      panels.forEach((p) => p.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-    });
+    btn.addEventListener('click', () => activateTab(btn.dataset.tab));
   });
 
   const FIELDS = {
@@ -88,4 +88,71 @@
   }
 
   loadSettings();
+
+  const scriptInput = document.getElementById('scriptInput');
+  const generateBtn = document.getElementById('generatePromptsBtn');
+  const generateStatus = document.getElementById('generateStatus');
+  const promptList = document.getElementById('promptList');
+
+  function renderScenes(scenes) {
+    if (!scenes.length) {
+      promptList.innerHTML = '<p class="coming-soon">Không sinh được cảnh nào, thử lại với kịch bản chi tiết hơn.</p>';
+      return;
+    }
+    promptList.innerHTML = '';
+    scenes.forEach((scene, i) => {
+      const card = document.createElement('div');
+      card.className = 'scene-card';
+      card.innerHTML = `
+        <h3>Cảnh ${scene.index ?? i + 1}</h3>
+        <p class="scene-summary">${(scene.summary || '').replace(/</g, '&lt;')}</p>
+        <textarea rows="4">${(scene.veo3Prompt || '').replace(/</g, '&lt;')}</textarea>
+        <div class="scene-actions">
+          <button class="btn-secondary copy-btn" type="button">Sao chép</button>
+        </div>
+      `;
+      card.querySelector('.copy-btn').addEventListener('click', (e) => {
+        const text = card.querySelector('textarea').value;
+        navigator.clipboard.writeText(text).then(() => {
+          e.target.textContent = 'Đã chép!';
+          setTimeout(() => { e.target.textContent = 'Sao chép'; }, 1500);
+        });
+      });
+      promptList.appendChild(card);
+    });
+  }
+
+  generateBtn.addEventListener('click', async () => {
+    const script = scriptInput.value.trim();
+    if (!script) {
+      generateStatus.textContent = 'Nhập kịch bản trước khi sinh prompt.';
+      generateStatus.className = 'field-status err';
+      return;
+    }
+    generateBtn.disabled = true;
+    generateStatus.textContent = 'Đang sinh prompt...';
+    generateStatus.className = 'field-status';
+    try {
+      const res = await fetch('/api/prompts/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ script }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        generateStatus.textContent = data.error || 'Có lỗi xảy ra.';
+        generateStatus.className = 'field-status err';
+        return;
+      }
+      generateStatus.textContent = `Đã sinh ${data.scenes.length} cảnh.`;
+      generateStatus.className = 'field-status ok';
+      renderScenes(data.scenes);
+      activateTab('prompt');
+    } catch (err) {
+      generateStatus.textContent = 'Không kết nối được tới server.';
+      generateStatus.className = 'field-status err';
+    } finally {
+      generateBtn.disabled = false;
+    }
+  });
 })();
