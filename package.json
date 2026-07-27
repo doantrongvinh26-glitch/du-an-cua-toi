@@ -1,0 +1,17 @@
+{
+  "name": "veo-scene-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tạo prompt từ kịch bản/video mẫu, render cảnh bằng Veo3, ghép cảnh mượt mà.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

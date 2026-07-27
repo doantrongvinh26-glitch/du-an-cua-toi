@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Veo Scene Studio</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">I</span>
+        <span class="brand-name">Veo Scene Studio</span>
+      </div>
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="input">Kịch bản / Video mẫu</button>
+        <button class="tab-btn" data-tab="prompt">Prompt</button>
+        <button class="tab-btn" data-tab="render">Render Veo3</button>
+        <button class="tab-btn" data-tab="stitch">Ghép cảnh</button>
+        <button class="tab-btn" data-tab="settings">Cài đặt</button>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section id="tab-input" class="panel active">
+        <h1>Kịch bản / Video mẫu</h1>
+        <p class="coming-soon">Sắp ra mắt: nhập kịch bản, tải video mẫu, hoặc dán link YouTube/TikTok/Facebook Reel để phân tích thành các cảnh.</p>
+      </section>
+
+      <section id="tab-prompt" class="panel">
+        <h1>Prompt</h1>
+        <p class="coming-soon">Sắp ra mắt: sinh prompt Veo3 chi tiết cho từng cảnh từ kịch bản hoặc video mẫu.</p>
+      </section>
+
+      <section id="tab-render" class="panel">
+        <h1>Render Veo3</h1>
+        <p class="coming-soon">Sắp ra mắt: gửi prompt tới Veo3 và theo dõi tiến trình render từng cảnh.</p>
+      </section>
+
+      <section id="tab-stitch" class="panel">
+        <h1>Ghép cảnh</h1>
+        <p class="coming-soon">Sắp ra mắt: ghép các cảnh đã render bằng hiệu ứng chuyển cảnh mượt (crossfade), dùng chung engine với <code>chuyen-canh.sh</code>.</p>
+      </section>
+
+      <section id="tab-settings" class="panel">
+        <h1>Cài đặt</h1>
+
+        <div class="card">
+          <h2>Gemini API Key</h2>
+          <p class="hint">
+            Dùng để gọi Veo3 qua Gemini API chính thức. Đăng nhập bằng tài khoản Gmail bất kỳ
+            (tài khoản chính hoặc phụ, <strong>không bắt buộc phải là tài khoản có Veo3 Ultra</strong>),
+            tạo API Key rồi dán vào ô bên dưới.
+          </p>
+          <a class="link-btn" href="https://aistudio.google.com/app/api-keys" target="_blank" rel="noopener noreferrer">
+            Mở trang lấy Gemini API Key ↗
+          </a>
+          <div class="field-row">
+            <input type="password" id="geminiApiKey" placeholder="Dán Gemini API Key vào đây" autocomplete="off" />
+            <button class="btn-secondary" id="toggleGeminiApiKey" type="button">Hiện</button>
+          </div>
+          <div class="field-status" id="geminiApiKeyStatus"></div>
+          <div class="field-actions">
+            <button class="btn-primary" id="saveGeminiApiKey">Lưu</button>
+            <button class="btn-danger" id="clearGeminiApiKey">Xoá</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Labs Token</h2>
+          <p class="hint">
+            Dùng để truy cập Veo3 qua Google Labs (Flow) bằng token trích từ trình duyệt, thay cho API trả phí chính thức.
+            Cài tiện ích bên dưới, đăng nhập <code>labs.google</code> bằng tài khoản có quyền Veo3, lấy token rồi dán vào đây.
+          </p>
+          <a class="link-btn" href="https://chromewebstore.google.com/detail/google-labs-sora-token-ex/jbkolffkpkieboijefphicjolkhopceb" target="_blank" rel="noopener noreferrer">
+            Mở tiện ích lấy Labs Token ↗
+          </a>
+          <p class="warning">
+            ⚠️ Đây là cách truy cập không chính thức (không qua API công khai của Google), có thể vi phạm Điều khoản dịch vụ
+            của Google Labs và tiềm ẩn rủi ro bị khoá/hạn chế tài khoản dùng để lấy token. Chỉ nên dùng tài khoản bạn chấp nhận rủi ro này.
+          </p>
+          <div class="field-row">
+            <input type="password" id="labsToken" placeholder="Dán Labs Token vào đây" autocomplete="off" />
+            <button class="btn-secondary" id="toggleLabsToken" type="button">Hiện</button>
+          </div>
+          <div class="field-status" id="labsTokenStatus"></div>
+          <div class="field-actions">
+            <button class="btn-primary" id="saveLabsToken">Lưu</button>
+            <button class="btn-danger" id="clearLabsToken">Xoá</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
