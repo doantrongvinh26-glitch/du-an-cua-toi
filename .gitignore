@@ -1,0 +1,15 @@
+# Khoá API — không bao giờ commit
+.env
+.env.local
+
+# File video/ảnh sinh ra khi chạy thử
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.png
+*.jpg
+*.gif
+!/**/mau-*.png
+
+node_modules/
