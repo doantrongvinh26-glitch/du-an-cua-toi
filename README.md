@@ -97,10 +97,16 @@ không mất credit và không cần API key.
 
 # Phần 1b — Tự động hoá Google Flow (`flow/`)
 
-`flow/flow_automation.py` gắn vào **cửa sổ Chrome bạn đã tự đăng nhập**, rồi thao tác
-trên [Google Flow](https://flow.google.com) đúng như khi bạn ngồi bấm: điền prompt,
-chọn thiết lập đầu ra, bấm nút tạo, theo dõi tới khi xong. Hợp khi cần gửi **nhiều
-prompt liên tiếp** mà không muốn ngồi canh.
+Gắn vào **cửa sổ Chrome bạn đã tự đăng nhập**, rồi thao tác trên
+[Google Flow](https://flow.google.com) đúng như khi bạn ngồi bấm: điền prompt, chọn
+thiết lập đầu ra, bấm nút tạo, theo dõi tới khi xong. Hợp khi cần gửi **nhiều prompt
+liên tiếp** mà không muốn ngồi canh.
+
+| File | Vai trò |
+|------|---------|
+| `flow/flow_e2e_tool.py` | **Thư viện một file.** Toàn bộ phần việc thật nằm ở đây, bày ra dưới dạng hàm. Chép đúng file này vào project nào cũng chạy — phụ thuộc duy nhất là `playwright`. |
+| `flow/flow_automation.py` | Giao diện dòng lệnh mỏng, gọi lại thư viện trên. Dùng khi không muốn viết code. |
+| `flow/test_mock.py` | Kiểm thử với trình duyệt giả lập. |
 
 > Script **không** đăng nhập hộ, **không** đọc hay lưu mật khẩu, **không** vượt qua
 > bước xác thực nào. Bạn tự đăng nhập trước; nó chỉ dùng lại phiên đang mở sẵn.
@@ -118,6 +124,55 @@ google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.config/chrome
 
 > Chrome 136 trở lên **chặn cổng gỡ lỗi trên profile mặc định**, nên bắt buộc phải
 > có `--user-data-dir` riêng như trên. Đăng nhập một lần, profile đó nhớ luôn.
+
+### Dùng trong code app
+
+Chép `flow/flow_e2e_tool.py` vào project của bạn rồi import thẳng:
+
+```python
+from flow_e2e_tool import run_flow_batch
+
+jobs = run_flow_batch(
+    ["biển đêm, sóng vỗ", "rừng thông buổi sớm"],
+    project="abc123",
+    resolution="720p",
+)
+for job in jobs:
+    print(job.status, job.task_id, job.media_urls)
+```
+
+Cần chen thao tác của mình vào giữa thì đi từng bước:
+
+```python
+from flow_e2e_tool import (
+    flow_session, open_project, apply_output_settings,
+    submit_prompt, wait_for_job, save_jobs,
+)
+
+with flow_session(project="abc123") as session:
+    open_project(session)
+    apply_output_settings(session, {"resolution": "720p"})
+
+    job = submit_prompt(session, "biển đêm, sóng vỗ")   # trả về ngay
+    wait_for_job(session, job)                          # chờ tới khi xong
+
+    save_jobs([job], "jobs_history.json")
+```
+
+| Nhóm | Hàm |
+|------|-----|
+| Kết nối | `connect_browser`, `close_session`, `flow_session` |
+| Điều hướng | `open_project`, `wait_until_ready` |
+| Thiết lập | `apply_output_settings` |
+| Sinh video | `submit_prompt`, `wait_for_job`, `generate`, `generate_batch`, `run_flow_batch` |
+| Phiên đăng nhập | `capture_session_state`, `verify_media_url` |
+| Lịch sử | `save_jobs`, `load_jobs` |
+| Tìm phần tử | `find_prompt_input`, `find_submit_button`, `fill_prompt`, `click_submit` |
+
+Mọi tham số của `FlowConfig` đều truyền lẻ được vào `flow_session(...)`,
+`connect_browser(...)` và `run_flow_batch(...)` — ví dụ `cdp_url=`, `duration=`,
+`generation_timeout_s=`, `dry_run=True`. Sai tên tham số thì báo lỗi kèm danh sách
+tên hợp lệ.
 
 ### Dùng từ dòng lệnh
 
@@ -181,7 +236,7 @@ giao diện — tiện khi cần dò lại lúc có gì đó không như ý.
 ### Khi Google đổi giao diện
 
 Mọi thứ phụ thuộc Flow (mẫu URL API, tên khoá JSON, chữ trên nút và ô nhập) gom hết
-trong khối **`PHẦN PHỤ THUỘC GOOGLE FLOW`** ở đầu `flow/flow_automation.py` — sửa ở
+trong khối **`PHẦN PHỤ THUỘC GOOGLE FLOW`** ở đầu `flow/flow_e2e_tool.py` — sửa ở
 đó là xong, không phải lần mò cả file. Mỗi thành phần giao diện đều có nhiều cách tìm
 xếp từ bền tới tạm (vai trò → placeholder → aria-label → thẻ HTML), không dùng XPath
 cứng. Chạy `--dry-run` để kiểm tra nhanh xem script còn bám đúng giao diện không.
@@ -192,9 +247,9 @@ cứng. Chạy `--dry-run` để kiểm tra nhanh xem script còn bám đúng gi
 cd flow && python3 test_mock.py
 ```
 
-45 trường hợp chạy với trình duyệt giả lập: tìm phần tử, gửi prompt, đọc mã tác vụ,
-chờ tới khi xong, hết giờ, tác vụ lỗi, ghi lịch sử, không lộ cookie. Không mở trình
-duyệt thật, không gọi Google, không tốn credit.
+61 trường hợp chạy với trình duyệt giả lập: tìm phần tử, gửi prompt, đọc mã tác vụ,
+chờ tới khi xong, hết giờ, tác vụ lỗi, một prompt hỏng không làm dừng cả loạt, ghi
+lịch sử, không lộ cookie. Không mở trình duyệt thật, không gọi Google, không tốn credit.
 
 ---
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-test_mock.py — Kiểm thử flow_automation.py mà KHÔNG cần trình duyệt, KHÔNG tốn credit.
+test_mock.py — Kiểm thử flow_e2e_tool.py mà KHÔNG cần trình duyệt, KHÔNG tốn credit.
 
 Thay Playwright bằng trang giả lập: tự dựng ô nhập, nút bấm, và "phát" các
 response y như Flow trả về thật. Nhờ vậy kiểm tra được đúng phần dễ vỡ nhất —
@@ -16,13 +16,16 @@ import json
 import logging
 import os
 import stat
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-import flow_automation as fa
+import flow_automation as cli
+import flow_e2e_tool as fa
 
 # Tắt bớt log cho kết quả kiểm thử dễ đọc.
 logging.disable(logging.WARNING)
@@ -261,17 +264,19 @@ def status_body(state: str, op_name: str = OP_NAME, url: Optional[str] = None) -
     return {"operations": [entry]}
 
 
-def make_bot(page: FakePage, config: Optional[fa.FlowConfig] = None) -> fa.FlowAutomation:
-    """Dựng FlowAutomation gắn vào trang giả lập, bỏ qua bước kết nối thật."""
+def make_session(page: FakePage, config: Optional[fa.FlowConfig] = None) -> fa.FlowSession:
+    """Dựng FlowSession gắn vào trang giả lập, bỏ qua bước kết nối trình duyệt thật."""
     config = config or fa.FlowConfig(
         ready_timeout_ms=400, action_timeout_ms=400,
         generation_timeout_s=3.0, poll_initial_s=0.02, poll_max_s=0.05,
     )
-    bot = fa.FlowAutomation(config)
-    bot._page = page                      # noqa: SLF001 - cố ý tiêm phụ thuộc giả
-    bot._flow = fa.FlowPage(page, config)  # noqa: SLF001
-    bot.monitor.attach(page)
-    return bot
+    monitor = fa.NetworkMonitor(
+        capture_bodies=config.capture_bodies, extra_hosts=(config.host,)
+    )
+    monitor.attach(page)
+    return fa.FlowSession(
+        config=config, page=page, context=FakeContext(), monitor=monitor,
+    )
 
 
 # ===========================================================================
@@ -488,80 +493,104 @@ class TestJobHistory(unittest.TestCase):
         self.assertEqual([p.name for p in Path(self.tmp.name).iterdir()], ["jobs_history.json"])
 
 
+
 # ===========================================================================
-# 5. Thao tác giao diện
+# 5. Thao tác giao diện (các hàm tìm phần tử / điền / bấm)
 # ===========================================================================
 
 
-class TestFlowPage(unittest.TestCase):
+class TestPageFunctions(unittest.TestCase):
     def setUp(self) -> None:
         self.config = fa.FlowConfig(ready_timeout_ms=300, action_timeout_ms=300)
 
     def test_tim_duoc_o_nhap_prompt(self) -> None:
-        page = FakePage()
-        locator = fa.FlowPage(page, self.config).prompt_input()
+        locator = fa.find_prompt_input(FakePage(), self.config)
         self.assertEqual(locator.kind, "prompt")
 
     def test_khong_tim_thay_thi_bao_loi_ro_rang(self) -> None:
-        page = FakePage(textboxes=[])
         with self.assertRaises(fa.ElementNotFound) as ctx:
-            fa.FlowPage(page, self.config).prompt_input()
+            fa.find_prompt_input(FakePage(textboxes=[]), self.config)
         self.assertIn("đổi giao diện", str(ctx.exception))
 
     def test_dien_prompt_va_gui_bang_nut(self) -> None:
         page = FakePage(buttons=["Create"])
-        flow = fa.FlowPage(page, self.config)
-        how = flow.submit(flow.fill_prompt("biển đêm"))
+        how = fa.click_submit(page, fa.fill_prompt(page, "biển đêm", self.config), self.config)
         self.assertEqual(page.value, "biển đêm")
         self.assertEqual(how, "nút gửi")
         self.assertIn("button:Create", page.clicked)
 
     def test_khong_co_nut_thi_gui_bang_enter(self) -> None:
         page = FakePage(buttons=[])
-        flow = fa.FlowPage(page, self.config)
-        how = flow.submit(flow.fill_prompt("biển đêm"))
+        how = fa.click_submit(page, fa.fill_prompt(page, "biển đêm", self.config), self.config)
         self.assertEqual(how, "phím Enter")
         self.assertIn("Enter", page.keys)
 
+    def test_dem_media_va_nhan_biet_dang_ban(self) -> None:
+        self.assertEqual(fa.count_media(FakePage(media=3)), 3)
+        self.assertTrue(fa.is_busy(FakePage(texts=["Generating…"])))
+        self.assertFalse(fa.is_busy(FakePage()))
+
     def test_thiet_lap_hong_thi_chi_canh_bao_chu_khong_vo(self) -> None:
-        page = FakePage(buttons=["Create"])  # không có nút Settings
-        applied = fa.FlowPage(page, self.config).apply_settings({"resolution": "720p"})
-        self.assertEqual(applied, {})
+        session = make_session(FakePage(buttons=["Create"]))  # không có nút Settings
+        self.assertEqual(fa.apply_output_settings(session, {"resolution": "720p"}), {})
 
     def test_chon_thiet_lap_bang_cach_bam_thang_gia_tri(self) -> None:
         page = FakePage(buttons=["Create", "Settings", "720p"])
-        applied = fa.FlowPage(page, self.config).apply_settings({"resolution": "720p"})
+        session = make_session(page)
+        applied = fa.apply_output_settings(session, {"resolution": "720p"})
         self.assertEqual(applied, {"resolution": "720p"})
         self.assertIn("button:720p", page.clicked)
+        self.assertEqual(session.applied_settings, {"resolution": "720p"})
 
-    def test_ensure_project_bao_loi_khi_bi_da_ve_trang_dang_nhap(self) -> None:
+    def test_thiet_lap_lay_tu_config_khi_khong_truyen(self) -> None:
+        page = FakePage(buttons=["Create", "Settings", "1080p"])
+        session = make_session(page, fa.FlowConfig(
+            ready_timeout_ms=300, action_timeout_ms=300, resolution="1080p",
+        ))
+        self.assertEqual(fa.apply_output_settings(session), {"resolution": "1080p"})
+
+
+# ===========================================================================
+# 6. Điều hướng
+# ===========================================================================
+
+
+class TestOpenProject(unittest.TestCase):
+    def test_mo_dung_url_project(self) -> None:
+        session = make_session(FakePage(url="about:blank"), fa.FlowConfig(
+            ready_timeout_ms=300, project="abc123"))
+        url = fa.open_project(session)
+        self.assertEqual(url, "https://flow.google.com/project/abc123")
+        self.assertEqual(session.project_url, url)
+
+    def test_project_truyen_thang_vao_ham(self) -> None:
+        session = make_session(FakePage(url="about:blank"), fa.FlowConfig(ready_timeout_ms=300))
+        self.assertEqual(
+            fa.open_project(session, "xyz789"), "https://flow.google.com/project/xyz789"
+        )
+
+    def test_bao_loi_khi_bi_da_ve_trang_dang_nhap(self) -> None:
         # Chưa đăng nhập thì Google đá sang accounts.google.com.
         page = FakePage(url="about:blank", redirect_to="https://accounts.google.com/signin")
-        config = fa.FlowConfig(ready_timeout_ms=300, project="p1")
+        session = make_session(page, fa.FlowConfig(ready_timeout_ms=300, project="p1"))
         with self.assertRaises(fa.NavigationFailed) as ctx:
-            fa.FlowPage(page, config).ensure_project()
+            fa.open_project(session)
         self.assertIn("chưa đăng nhập", str(ctx.exception).lower())
 
-    def test_ensure_project_mo_dung_url_project(self) -> None:
-        page = FakePage(url="about:blank")
-        config = fa.FlowConfig(ready_timeout_ms=300, project="abc123")
-        url = fa.FlowPage(page, config).ensure_project()
-        self.assertEqual(url, "https://flow.google.com/project/abc123")
-
-    def test_ensure_project_bao_loi_khi_khong_biet_mo_gi(self) -> None:
-        page = FakePage(url="https://example.com")
-        config = fa.FlowConfig(ready_timeout_ms=300)
+    def test_bao_loi_khi_khong_biet_mo_gi(self) -> None:
+        session = make_session(FakePage(url="https://example.com"),
+                               fa.FlowConfig(ready_timeout_ms=300))
         with self.assertRaises(fa.NavigationFailed) as ctx:
-            fa.FlowPage(page, config).ensure_project()
-        self.assertIn("--project", str(ctx.exception))
+            fa.open_project(session)
+        self.assertIn("project", str(ctx.exception))
 
 
 # ===========================================================================
-# 6. Chạy trọn một tác vụ
+# 7. Gửi prompt và chờ kết quả
 # ===========================================================================
 
 
-class TestRunOne(unittest.TestCase):
+class TestGenerate(unittest.TestCase):
     def test_xong_nho_tin_hieu_mang(self) -> None:
         page = FakePage()
         page.steps = [
@@ -571,15 +600,29 @@ class TestRunOne(unittest.TestCase):
                 body=status_body("MEDIA_GENERATION_STATUS_SUCCESSFUL", url="https://x/y.mp4"),
             )),
         ]
-        bot = make_bot(page)
-        record = fa.JobRecord(prompt="biển đêm", index=1)
-        bot.run_one(record)
+        job = fa.generate(make_session(page), "biển đêm")
 
-        self.assertEqual(record.status, "done")
-        self.assertEqual(record.task_id, OP_NAME)
-        self.assertEqual(record.media_urls, ["https://x/y.mp4"])
-        self.assertTrue(any("mạng" in s for s in record.signals), record.signals)
-        self.assertIsNotNone(record.duration_s)
+        self.assertEqual(job.status, "done")
+        self.assertEqual(job.task_id, OP_NAME)
+        self.assertEqual(job.media_urls, ["https://x/y.mp4"])
+        self.assertTrue(any("mạng" in s for s in job.signals), job.signals)
+        self.assertIsNotNone(job.duration_s)
+
+    def test_gui_va_cho_la_hai_buoc_roi_nhau(self) -> None:
+        # submit_prompt() trả về ngay, wait_for_job() mới là bước chờ.
+        page = FakePage()
+        page.steps = [
+            lambda: page.fire("response", FakeResponse(
+                STATUS_URL, body=status_body("SUCCEEDED", url="https://x/y.mp4"),
+            )),
+        ]
+        session = make_session(page)
+        job = fa.submit_prompt(session, "biển đêm")
+        self.assertEqual(job.status, "submitted")
+        self.assertIsNone(job.finished_at)
+
+        fa.wait_for_job(session, job)
+        self.assertEqual(job.status, "done")
 
     def test_that_bai_thi_ghi_ly_do(self) -> None:
         page = FakePage()
@@ -593,11 +636,9 @@ class TestRunOne(unittest.TestCase):
                 }],
             })),
         ]
-        bot = make_bot(page)
-        record = fa.JobRecord(prompt="x", index=1)
-        bot.run_one(record)
-        self.assertEqual(record.status, "failed")
-        self.assertIn("chính sách", record.error or "")
+        job = fa.generate(make_session(page), "x")
+        self.assertEqual(job.status, "failed")
+        self.assertIn("chính sách", job.error or "")
 
     def test_request_gui_bi_tu_choi_thi_bao_hong_ngay(self) -> None:
         # Hết hạn mức / prompt bị chặn: response lỗi thường KHÔNG kèm mã tác vụ nào,
@@ -608,11 +649,9 @@ class TestRunOne(unittest.TestCase):
                 GEN_URL, status=429, body={"error": {"message": "hết hạn mức"}}
             )),
         ]
-        bot = make_bot(page)
-        record = fa.JobRecord(prompt="x", index=1)
-        bot.run_one(record)
-        self.assertEqual(record.status, "failed")
-        self.assertIn("hạn mức", record.error or "")
+        job = fa.generate(make_session(page), "x")
+        self.assertEqual(job.status, "failed")
+        self.assertIn("hạn mức", job.error or "")
 
     def test_xong_nho_tin_hieu_giao_dien_khi_mang_im_lang(self) -> None:
         page = FakePage()
@@ -621,75 +660,176 @@ class TestRunOne(unittest.TestCase):
             page.media = 1
 
         page.steps = [lambda: None, them_video]
-        bot = make_bot(page)
-        record = fa.JobRecord(prompt="x", index=1)
-        bot.run_one(record)
-        self.assertEqual(record.status, "done")
-        self.assertTrue(any("giao diện" in s for s in record.signals), record.signals)
+        job = fa.generate(make_session(page), "x")
+        self.assertEqual(job.status, "done")
+        self.assertTrue(any("giao diện" in s for s in job.signals), job.signals)
 
     def test_het_gio_thi_bao_timeout_kem_goi_y(self) -> None:
-        page = FakePage()
         config = fa.FlowConfig(
             ready_timeout_ms=300, action_timeout_ms=300,
             generation_timeout_s=0.3, poll_initial_s=0.02, poll_max_s=0.05,
         )
-        bot = make_bot(page, config)
-        record = fa.JobRecord(prompt="x", index=1)
+        session = make_session(FakePage(), config)
+        job = fa.submit_prompt(session, "x")
         with self.assertRaises(fa.GenerationTimeout):
-            bot.run_one(record)
-        self.assertEqual(record.status, "timeout")
-        self.assertIn("--timeout", record.error or "")
+            fa.wait_for_job(session, job)
+        self.assertEqual(job.status, "timeout")
+        self.assertIn("generation_timeout_s", job.error or "")
 
     def test_dry_run_khong_bam_nut(self) -> None:
         page = FakePage()
         config = fa.FlowConfig(ready_timeout_ms=300, action_timeout_ms=300, dry_run=True)
-        bot = make_bot(page, config)
-        record = fa.JobRecord(prompt="thử", index=1)
-        bot.run_one(record)
-        self.assertEqual(record.status, "dry-run")
+        job = fa.generate(make_session(page, config), "thử")
+        self.assertEqual(job.status, "dry-run")
         self.assertEqual(page.value, "thử")
         self.assertEqual(page.clicked, ["prompt"])  # chỉ bấm vào ô nhập
         self.assertNotIn("Enter", page.keys)
 
+    def test_cho_lai_tac_vu_da_xong_thi_tra_ve_ngay(self) -> None:
+        session = make_session(FakePage())
+        job = fa.JobRecord(prompt="x", index=1)
+        job.finish("done")
+        self.assertIs(fa.wait_for_job(session, job), job)
+
     def test_khop_su_kien_theo_ma_tac_vu(self) -> None:
-        record = fa.JobRecord(prompt="x", index=1, task_ids=["op-A"])
+        job = fa.JobRecord(prompt="x", index=1, task_ids=["op-A"])
         khop = fa.NetEvent(kind="status", url=STATUS_URL, status_code=200, at=0, task_ids=["op-A"])
         lech = fa.NetEvent(kind="status", url=STATUS_URL, status_code=200, at=0, task_ids=["op-B"])
-        self.assertTrue(fa.FlowAutomation._event_matches(record, khop))
-        self.assertFalse(fa.FlowAutomation._event_matches(record, lech))
+        self.assertTrue(fa.event_matches(job, khop))
+        self.assertFalse(fa.event_matches(job, lech))
 
-    def test_run_batch_ghi_lich_su_sau_tung_prompt(self) -> None:
+
+# ===========================================================================
+# 8. Chạy cả loạt
+# ===========================================================================
+
+
+class TestGenerateBatch(unittest.TestCase):
+    def test_ghi_lich_su_sau_tung_prompt(self) -> None:
         page = FakePage()
         with tempfile.TemporaryDirectory() as tmp:
+            history = Path(tmp) / "jobs_history.json"
             config = fa.FlowConfig(
                 ready_timeout_ms=300, action_timeout_ms=300, dry_run=True,
-                delay_between_s=0, history_path=Path(tmp) / "jobs_history.json",
-                resolution="720p",
+                delay_between_s=0, history_path=history, resolution="720p",
             )
-            bot = make_bot(page, config)
-            bot._context = FakeContext()  # noqa: SLF001 - cho capture_session()
-            records = bot.run_batch(["cảnh 1", "cảnh 2"])
+            jobs = fa.generate_batch(make_session(page, config), ["cảnh 1", "cảnh 2"])
 
-            self.assertEqual([r.status for r in records], ["dry-run", "dry-run"])
-            data = json.loads(config.history_path.read_text(encoding="utf-8"))
+            self.assertEqual([j.status for j in jobs], ["dry-run", "dry-run"])
+            data = json.loads(history.read_text(encoding="utf-8"))
             self.assertEqual([j["prompt"] for j in data["jobs"]], ["cảnh 1", "cảnh 2"])
             self.assertEqual(data["jobs"][0]["settings"], {"resolution": "720p"})
             self.assertEqual(data["jobs"][0]["project_id"], "p1")
 
+    def test_mot_prompt_hong_khong_lam_dung_ca_loat(self) -> None:
+        page = FakePage()
+        config = fa.FlowConfig(
+            ready_timeout_ms=300, action_timeout_ms=300, delay_between_s=0,
+            generation_timeout_s=0.3, poll_initial_s=0.02, poll_max_s=0.05,
+        )
+        session = make_session(page, config)
+
+        # Prompt "hỏng" không có tín hiệu nào nên hết giờ; prompt "ổn" hiện video ra
+        # ngay. Bám theo nội dung prompt chứ không đếm số nhịp chờ, để khỏi phụ thuộc
+        # vào việc vòng lặp quay được bao nhiêu vòng.
+        def video_khi_den_prompt_on() -> None:
+            if page.value == "ổn":
+                page.media += 1
+
+        page.steps = [video_khi_den_prompt_on] * 60
+        jobs = fa.generate_batch(session, ["hỏng", "ổn"], save_history=False)
+        self.assertEqual([j.status for j in jobs], ["timeout", "done"])
+
+    def test_khong_ghi_lich_su_khi_tat_co(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = fa.FlowConfig(
+                ready_timeout_ms=300, action_timeout_ms=300, dry_run=True,
+                delay_between_s=0, history_path=Path(tmp) / "khong-duoc-tao.json",
+            )
+            fa.generate_batch(make_session(FakePage(), config), ["a"], save_history=False)
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_tu_mo_project_va_chup_phien(self) -> None:
+        session = make_session(FakePage(), fa.FlowConfig(
+            ready_timeout_ms=300, action_timeout_ms=300, dry_run=True,
+            delay_between_s=0, project="p1",
+        ))
+        self.assertIsNone(session.project_url)
+        fa.generate_batch(session, ["a"], save_history=False)
+        self.assertIsNotNone(session.project_url)
+        self.assertIsNotNone(session.state)
+
+    def test_run_flow_batch_khong_co_prompt_thi_khong_mo_trinh_duyet(self) -> None:
+        self.assertEqual(fa.run_flow_batch([]), [])
+
 
 # ===========================================================================
-# 7. Dòng lệnh
+# 9. Cấu hình và API import
+# ===========================================================================
+
+
+class TestConfigApi(unittest.TestCase):
+    def test_tham_so_le_bao_loi_ro_khi_sai_ten(self) -> None:
+        with self.assertRaises(fa.FlowError) as ctx:
+            fa._merge_config(None, {"resolutionn": "720p"})
+        self.assertIn("resolutionn", str(ctx.exception))
+
+    def test_tham_so_le_gop_vao_config_co_san(self) -> None:
+        base = fa.FlowConfig(project="p1", resolution="720p")
+        merged = fa._merge_config(base, {"resolution": "1080p"})
+        self.assertEqual(merged.project, "p1")
+        self.assertEqual(merged.resolution, "1080p")
+        self.assertEqual(base.resolution, "720p")  # bản gốc không bị sửa
+
+    def test_host_suy_ra_tu_base_url(self) -> None:
+        self.assertEqual(fa.FlowConfig().host, "flow.google.com")
+        self.assertEqual(fa.FlowConfig(base_url="http://127.0.0.1:8899").host, "127.0.0.1")
+
+    def test_moi_ten_trong_all_deu_ton_tai(self) -> None:
+        for name in fa.__all__:
+            self.assertTrue(hasattr(fa, name), f"__all__ nhắc tới {name} nhưng không có")
+
+    def test_import_khong_keo_theo_playwright(self) -> None:
+        # Import thư viện phải nhẹ: playwright chỉ được nạp lúc thật sự mở trình
+        # duyệt, nhờ vậy project của bạn import file này ở đâu cũng được.
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import flow_e2e_tool, sys; print('playwright' in sys.modules)"],
+            capture_output=True, text=True, cwd=str(Path(__file__).resolve().parent),
+        )
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(out.stdout.strip(), "False", "import đã kéo theo playwright")
+
+    def test_luu_va_doc_lai_lich_su(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "h.json"
+            job = fa.JobRecord(prompt="x", index=1, task_id="op-1")
+            job.finish("done")
+            fa.save_jobs([job], path)
+            loaded = fa.load_jobs(path)
+            self.assertEqual(loaded[0]["prompt"], "x")
+            self.assertEqual(loaded[0]["task_id"], "op-1")
+            self.assertEqual(fa.load_jobs(Path(tmp) / "chua-co.json"), [])
+
+    def test_truong_noi_bo_khong_ghi_ra_file(self) -> None:
+        job = fa.JobRecord(prompt="x", index=1, watch_mark=7, baseline_media=2)
+        self.assertNotIn("watch_mark", job.to_dict())
+        self.assertNotIn("baseline_media", job.to_dict())
+
+
+# ===========================================================================
+# 10. Dòng lệnh (flow_automation.py)
 # ===========================================================================
 
 
 class TestCli(unittest.TestCase):
     def test_gom_prompt_va_bo_trung(self) -> None:
-        parser = fa.build_parser()
+        parser = cli.build_parser()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "canh.txt"
             path.write_text("# ghi chú\ncảnh 1\ncảnh 2\ncảnh 1\n", encoding="utf-8")
             args = parser.parse_args(["--prompt", "cảnh 0", "--prompts-file", str(path)])
-            self.assertEqual(fa.collect_prompts(args), ["cảnh 0", "cảnh 1", "cảnh 2"])
+            self.assertEqual(cli.collect_prompts(args), ["cảnh 0", "cảnh 1", "cảnh 2"])
 
     def test_doc_prompt_tu_file_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -698,17 +838,17 @@ class TestCli(unittest.TestCase):
             self.assertEqual(fa.load_prompts_file(path), ["a", "b"])
 
     def test_khong_co_prompt_thi_thoat_ma_2(self) -> None:
-        self.assertEqual(fa.main(["--project", "p1"]), 2)
+        self.assertEqual(cli.main(["--project", "p1"]), 2)
 
     def test_config_tu_tham_so(self) -> None:
-        args = fa.build_parser().parse_args(
+        args = cli.build_parser().parse_args(
             ["--project", "p1", "--resolution", "720p", "--duration", "8", "--no-settings"]
         )
-        config = fa.config_from_args(args)
+        config = cli.config_from_args(args)
         self.assertEqual(config.desired_settings(), {"resolution": "720p", "duration": "8"})
         self.assertFalse(config.apply_settings)
 
 
 if __name__ == "__main__":
-    print("Chạy kiểm thử flow_automation với trình duyệt giả lập (không tốn credit)...\n")
+    print("Chạy kiểm thử flow_e2e_tool với trình duyệt giả lập (không tốn credit)...\n")
     unittest.main(verbosity=2)
