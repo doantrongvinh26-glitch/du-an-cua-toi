@@ -1,12 +1,14 @@
 # Công cụ tạo & xử lý video
 
-Gồm hai phần:
+Gồm ba phần:
 
 - **Tạo** ảnh/video bằng AI qua [TopView](https://www.topview.ai) — thư mục `topview/`.
+- **Tự động hoá** [Google Flow](https://flow.google.com) trên trình duyệt của bạn —
+  thư mục `flow/`, gửi prompt hàng loạt thay vì ngồi bấm từng cái.
 - **Dựng** video bằng [ffmpeg](https://ffmpeg.org/) — các script `.sh` ghép nối,
   chuyển cảnh, nhạc nền, phụ đề.
 
-Hai phần nối thẳng được với nhau: tạo từng cảnh bằng AI rồi dựng thành video hoàn chỉnh.
+Ba phần nối thẳng được với nhau: tạo từng cảnh bằng AI rồi dựng thành video hoàn chỉnh.
 
 ## Yêu cầu
 
@@ -90,6 +92,109 @@ node topview/test-mock.js
 Chạy client với server giả lập, kiểm tra 12 tình huống (chờ tác vụ, tải file,
 hết credit, tác vụ lỗi, thiếu key, quá thời gian chờ). Không gọi API thật nên
 không mất credit và không cần API key.
+
+---
+
+# Phần 1b — Tự động hoá Google Flow (`flow/`)
+
+`flow/flow_automation.py` gắn vào **cửa sổ Chrome bạn đã tự đăng nhập**, rồi thao tác
+trên [Google Flow](https://flow.google.com) đúng như khi bạn ngồi bấm: điền prompt,
+chọn thiết lập đầu ra, bấm nút tạo, theo dõi tới khi xong. Hợp khi cần gửi **nhiều
+prompt liên tiếp** mà không muốn ngồi canh.
+
+> Script **không** đăng nhập hộ, **không** đọc hay lưu mật khẩu, **không** vượt qua
+> bước xác thực nào. Bạn tự đăng nhập trước; nó chỉ dùng lại phiên đang mở sẵn.
+> Dùng cho tài khoản của chính bạn và theo điều khoản sử dụng của Google.
+
+### Chuẩn bị
+
+```bash
+pip install -r flow/requirements.txt
+playwright install chromium
+
+# Mở Chrome kèm cổng gỡ lỗi, dùng profile RIÊNG, rồi TỰ ĐĂNG NHẬP Google trong đó:
+google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.config/chrome-flow"
+```
+
+> Chrome 136 trở lên **chặn cổng gỡ lỗi trên profile mặc định**, nên bắt buộc phải
+> có `--user-data-dir` riêng như trên. Đăng nhập một lần, profile đó nhớ luôn.
+
+### Dùng từ dòng lệnh
+
+```bash
+# Một prompt
+python3 flow/flow_automation.py --project abc123 --prompt "biển đêm, sóng vỗ"
+
+# Cả loạt, lấy từ file (mỗi dòng một prompt)
+python3 flow/flow_automation.py --project abc123 --prompts-file canh.txt \
+    --resolution 720p --duration 8
+
+# Thử trước mà KHÔNG bấm nút tạo — kiểm tra script bám đúng giao diện, không tốn credit
+python3 flow/flow_automation.py --project abc123 --prompt "thử" --dry-run
+```
+
+`--project` nhận id trần hoặc cả URL `https://flow.google.com/project/...`. Bỏ trống
+thì script dùng luôn tab Flow đang mở.
+
+| Tuỳ chọn | Ý nghĩa |
+|----------|---------|
+| `--prompt TEXT` | Nội dung cần tạo. Lặp lại để gửi nhiều prompt. |
+| `--prompts-file FILE` | File `.txt` (mỗi dòng một prompt, `#` là ghi chú, `---` tách prompt nhiều dòng) hoặc `.json`. |
+| `--resolution`, `--duration`, `--model`, `--outputs`, `--aspect` | Thiết lập đầu ra. Bỏ trống = giữ nguyên thiết lập đang có trên giao diện. |
+| `--timeout GIÂY` | Chờ tối đa mỗi tác vụ (mặc định 900). |
+| `--delay GIÂY` | Nghỉ giữa hai prompt (mặc định 5). |
+| `--history FILE` | File lịch sử (mặc định `jobs_history.json`). |
+| `--dry-run` | Làm mọi bước trừ bấm nút tạo. |
+| `--cdp-url` / `--user-data-dir` | Hai cách nối trình duyệt (xem dưới). |
+| `--verify-media` | Thử mở link kết quả bằng chính phiên đăng nhập để kiểm tra. |
+
+Xem đầy đủ bằng `python3 flow/flow_automation.py --help`.
+
+### Hai cách nối vào trình duyệt
+
+| Cách | Khi nào dùng |
+|------|--------------|
+| **CDP** (mặc định) | Chrome đã mở sẵn kèm `--remote-debugging-port=9222`. Script gắn vào cửa sổ đang chạy, **không** tắt trình duyệt của bạn khi xong. |
+| **Profile có sẵn** | Thêm `--user-data-dir ~/.config/chrome-flow`. Dùng khi không mở được cổng CDP — script tự mở trình duyệt bằng profile đó. |
+
+### Kết quả ghi ở đâu
+
+Mỗi prompt được ghi ngay vào `jobs_history.json` (ghi sau **từng** prompt, nên
+lỡ dừng giữa chừng vẫn còn dữ liệu):
+
+```json
+{
+  "index": 1,
+  "prompt": "biển đêm, sóng vỗ",
+  "status": "done",
+  "task_id": "projects/.../operations/op-123",
+  "submitted_at": "2026-05-04T21:10:33+07:00",
+  "duration_s": 96.4,
+  "media_urls": ["https://.../clip.mp4"],
+  "signals": ["đã gửi bằng nút gửi", "mạng: trạng thái hoàn tất"]
+}
+```
+
+Trường `signals` cho biết script dựa vào đâu để kết luận — tín hiệu mạng hay tín hiệu
+giao diện — tiện khi cần dò lại lúc có gì đó không như ý.
+
+### Khi Google đổi giao diện
+
+Mọi thứ phụ thuộc Flow (mẫu URL API, tên khoá JSON, chữ trên nút và ô nhập) gom hết
+trong khối **`PHẦN PHỤ THUỘC GOOGLE FLOW`** ở đầu `flow/flow_automation.py` — sửa ở
+đó là xong, không phải lần mò cả file. Mỗi thành phần giao diện đều có nhiều cách tìm
+xếp từ bền tới tạm (vai trò → placeholder → aria-label → thẻ HTML), không dùng XPath
+cứng. Chạy `--dry-run` để kiểm tra nhanh xem script còn bám đúng giao diện không.
+
+### Kiểm thử không cần trình duyệt
+
+```bash
+cd flow && python3 test_mock.py
+```
+
+45 trường hợp chạy với trình duyệt giả lập: tìm phần tử, gửi prompt, đọc mã tác vụ,
+chờ tới khi xong, hết giờ, tác vụ lỗi, ghi lịch sử, không lộ cookie. Không mở trình
+duyệt thật, không gọi Google, không tốn credit.
 
 ---
 
@@ -236,6 +341,11 @@ Các script nối tiếp được với nhau. Ví dụ quy trình dựng một v
 ---
 
 # Quy trình đầy đủ: AI tạo cảnh → ffmpeg dựng phim
+
+Tạo cảnh bằng TopView (dưới đây) hoặc bằng Google Flow
+(`python3 flow/flow_automation.py --prompts-file canh.txt`, rồi tải video từ Flow về),
+sau đó dựng bằng các script ffmpeg.
+
 
 ```bash
 export TOPVIEW_API_KEY="khoá-của-bạn"

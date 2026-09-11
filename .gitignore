@@ -13,3 +13,12 @@
 !/**/mau-*.png
 
 node_modules/
+
+# Lịch sử chạy Flow và bản chụp phiên đăng nhập — dữ liệu riêng của máy bạn
+jobs_history.json
+jobs_history.json.bak
+jobs_history.json.tmp
+flow-session.json
+
+__pycache__/
+*.pyc

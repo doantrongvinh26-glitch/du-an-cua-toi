@@ -1,0 +1,4 @@
+# Phụ thuộc duy nhất của module flow/. Sau khi cài nhớ tải trình duyệt:
+#   pip install -r flow/requirements.txt
+#   playwright install chromium
+playwright>=1.40
