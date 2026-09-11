@@ -637,7 +637,7 @@ class NetworkMonitor:
     Playwright bản đồng bộ phát sự kiện trên chính luồng đang chạy (chỉ trong lúc
     bạn gọi một hàm Playwright khác), nên danh sách sự kiện ở đây không cần khoá.
     Đổi lại: muốn nhận sự kiện thì phải chờ bằng `page.wait_for_timeout()`,
-    KHÔNG dùng `time.sleep()` — xem `FlowAutomation._sleep`.
+    KHÔNG dùng `time.sleep()` — xem hàm `_sleep()` ở cuối file.
     """
 
     def __init__(
@@ -886,7 +886,6 @@ class JobHistory:
         )
         tmp.replace(self.path)  # đổi tên trong cùng thư mục là thao tác nguyên tử
         return self.path
-
 
 
 # ===========================================================================
